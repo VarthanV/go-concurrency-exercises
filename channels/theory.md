@@ -133,3 +133,71 @@ func rangingOverChannel() {
 
 - Closing  channel is also a mechanism to signal ``n`` goroutines waiting on a single channel instead of writing n times to a channel to unblock each goroutine
 
+```go
+
+func signallingMechanism() {
+	fmt.Println("############## signallingMechanism ##############")
+	begin := make(chan interface{})
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-begin // wait until unblocked
+			fmt.Println(i)
+		}(i)
+	}
+
+	fmt.Println("Unblocking goroutines...")
+	close(begin)
+	wg.Wait()
+
+	fmt.Println("##############################")
+
+}
+```
+
+## Buffered Channels
+
+- Channels that are given ``capacity`` when they are instantiated.
+
+-  This means that even if no reads are performed on the channel a goroutine can still perform writes ``n writes`` when ``n is the capacity`` of the bufffered channel
+
+```go
+dataStream := make(chan interface{},4)
+```
+
+- This means that we can place four things into the channel regardless of whether it is being read from.
+
+- Buffered channels are an in-memory FIFO queue for concurrent process to communicate over.
+
+- Buffered channels can be useful in certain situations but we should create them with care.
+
+- Buffered channels can easily become a ``premature optimization`` and also hide ``deadlocks`` by making them more unlikely to happen.
+
+```go
+func bufferedChan() {
+	fmt.Println("############## bufferedChan ##############")
+	intStream := make(chan int, 4)
+
+	go func() {
+		defer close(intStream)
+		for i := 0; i < 5; i++ {
+			intStream <- i
+		}
+	}()
+
+	for val := range intStream {
+		fmt.Println(val)
+	}
+
+	fmt.Println("##############################")
+
+}
+```
+- It can be useful to create a buffered channel whose capacity is the number of writes to be made and then make those writes quickly as possible.
+
+![alt text](channel-compatiblity-matrix.png)
+
+[Google docs link](https://docs.google.com/document/d/1QxOek0xAv1eT1CupqNDVa5KyTWQoBWWLCnmL5FZ-Z-0/edit?usp=sharing)
+

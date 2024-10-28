@@ -80,10 +80,31 @@ func signallingMechanism() {
 
 }
 
+func bufferedChan() {
+	fmt.Println("############## bufferedChan ##############")
+	intStream := make(chan int, 4)
+
+	go func() {
+		defer close(intStream)
+		for i := 0; i < 5; i++ {
+			intStream <- i
+		}
+	}()
+
+	for val := range intStream {
+		fmt.Println(val)
+	}
+
+	fmt.Println("##############################")
+
+}
+
 func main() {
 	basicReadWriteExample()
 	channelReturnsBoolValWhenReading()
 	readingFromClosedChan()
 	rangingOverChannel()
 	signallingMechanism()
+	bufferedChan()
+
 }
