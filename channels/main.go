@@ -99,6 +99,33 @@ func bufferedChan() {
 
 }
 
+// producerConsumerPattern: producer owns the responsiblity and provides a ready only stream of channel
+// for the consumer to consume
+func producerConsumerPattern() {
+	fmt.Println("############## producerConsumerPattern ##############")
+
+	chanOwner := func() <-chan int {
+		resultStream := make(chan int, 5)
+		go func() {
+			defer close(resultStream)
+			for i := 0; i < 5; i++ {
+				resultStream <- i
+			}
+		}()
+		return resultStream
+	}
+
+	resultStream := chanOwner()
+
+	for result := range resultStream { // will block here
+		fmt.Println("received ", result)
+	}
+
+	fmt.Println("done receiving!!")
+	fmt.Println("##############################")
+
+}
+
 func main() {
 	basicReadWriteExample()
 	channelReturnsBoolValWhenReading()
@@ -106,5 +133,6 @@ func main() {
 	rangingOverChannel()
 	signallingMechanism()
 	bufferedChan()
+	producerConsumerPattern()
 
 }

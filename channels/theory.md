@@ -201,3 +201,74 @@ func bufferedChan() {
 
 [Google docs link](https://docs.google.com/document/d/1QxOek0xAv1eT1CupqNDVa5KyTWQoBWWLCnmL5FZ-Z-0/edit?usp=sharing)
 
+## Efficient usage of channels
+
+-  To put channels in the right context is to assign channel ``ownership``.
+
+-  Ownership as being a goroutines that ``instantiates,writes and closes`` a channel.
+
+- Unidirectional channel declarations are the tool that will allow us to distinguish between  goroutines that owns the channel and goroutines that only utilize them.
+
+- Channel ``owners`` have ``write-access`` view into the channel (``chan or chan <-``)
+
+- Channel ``utilizers`` have a ``read-only`` view into the channel (``<-chan``)
+
+
+## Owner responsiblites
+
+- Instantiate the channel
+
+- Perform writes or pass ownership to another goroutine.
+
+- Close the channel
+
+- Encapsulate the previous three things in the list and expose them via a reader channel.
+
+By assigning the responsibilites to channel owners a few things happen
+
+- Because we are the one initializing the channel , we remove the risk of ``dealocking`` by writing to a ``nil`` channel.
+
+- Because we are the one initializing the channel , we remove the rsik of ``panicing`` by closing a ``nil`` channel.
+
+- Because we are the one who decides when the channel gets closed , we remove the risk of ``panicing`` by writing to a closed channel.
+
+- Because we are the one who decides when the channel gets closed , we remove the risk of ``panicing`` by closing a channel more than once.
+
+- We wield the type checker at compile time to prevent improper writes to our channels
+
+## Consumer responsiblities
+
+- Knowing when a channel is close
+
+- Responsiblity handling blocking for any reason
+
+## Sample
+
+```go
+// producerConsumerPattern: producer owns the responsiblity and provides a ready only stream of channel
+// for the consumer to consume
+func producerConsumerPattern() {
+	fmt.Println("############## producerConsumerPattern ##############")
+
+	chanOwner := func() <-chan int {
+		resultStream := make(chan int, 5)
+		go func() {
+			defer close(resultStream)
+			for i := 0; i < 5; i++ {
+				resultStream <- i
+			}
+		}()
+		return resultStream
+	}
+
+	resultStream := chanOwner()
+
+	for result := range resultStream { // will block here
+		fmt.Println("received ", result)
+	}
+
+	fmt.Println("done receiving!!")
+	fmt.Println("##############################")
+
+}
+```
