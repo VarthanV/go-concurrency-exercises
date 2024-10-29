@@ -64,3 +64,10 @@ func foreverBlocking() {
 
 - In the ``runtime`` package there is a function called ``GOMAXPROCS``.
 
+- This fn controls the number of ``OS threads`` that will so host so-called ``worker queues``
+
+```go
+runtime.GOMAXPROCS(runtime.NumCPU())
+```
+
+
