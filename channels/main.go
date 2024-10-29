@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 func basicReadWriteExample() {
@@ -126,6 +127,58 @@ func producerConsumerPattern() {
 
 }
 
+func basicSelect() {
+	fmt.Println("############## basicSelect ##############")
+
+	c1 := make(chan interface{})
+	c2 := make(chan interface{})
+
+	var c3 chan<- interface{}
+
+	go func() {
+		time.Sleep(3 * time.Second)
+		c2 <- "foo"
+	}()
+
+	select {
+	case <-c1:
+		fmt.Println("received from c1")
+	case <-c2:
+		fmt.Println("received from c2")
+	case c3 <- true:
+		// do something
+	}
+
+	fmt.Println("exiting!!")
+
+}
+
+func timeOutToPreventBlocking() {
+	var c <-chan int
+	fmt.Println("############## timeOutToPreventBlocking ##############")
+
+	select {
+	case <-c:
+		// do something
+	case <-time.After(2 * time.Second):
+		fmt.Println("timed out!!")
+	}
+	fmt.Println("##############################")
+
+}
+
+func foreverBlocking() {
+	/*
+			fatal error: all goroutines are asleep - deadlock!
+
+		goroutine 1 [select (no cases)]:
+		main.foreverBlocking(...)
+		main.main()
+		exit status 2
+	*/
+	select {}
+}
+
 func main() {
 	basicReadWriteExample()
 	channelReturnsBoolValWhenReading()
@@ -134,5 +187,8 @@ func main() {
 	signallingMechanism()
 	bufferedChan()
 	producerConsumerPattern()
+	basicSelect()
+	timeOutToPreventBlocking()
+	foreverBlocking()
 
 }
