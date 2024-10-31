@@ -11,6 +11,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 )
 
 type Todo struct {
@@ -50,9 +51,13 @@ func doHTTP(done <-chan interface{}, urlStream <-chan string) <-chan Process {
 	go func() {
 		defer close(resultStream)
 
-		for url := range urlStream {
+		for {
 			select {
-			default:
+			case url, ok := <-urlStream:
+				if !ok {
+					log.Println("all process complete")
+					return
+				}
 				var (
 					httpResp *Todo
 				)
@@ -103,9 +108,13 @@ func insertInDB(done <-chan interface{}, processStream <-chan Process, db *gorm.
 	go func() {
 		defer close(resultStream)
 
-		for val := range processStream {
+		for {
 			select {
-			default:
+			case val, ok := <-processStream:
+				if !ok {
+					log.Println("all process complete")
+					return
+				}
 				if val.Err != nil {
 					resultStream <- val
 					continue
@@ -139,7 +148,9 @@ func WebScrapperPipelineDriver() {
 		wg      sync.WaitGroup
 	)
 
-	db, err := gorm.Open(sqlite.Open("todo.db"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("todo.db"), &gorm.Config{
+		Logger: logger.Default,
+	})
 	if err != nil {
 		log.Fatal("unable to open db ", err)
 	}
@@ -157,6 +168,7 @@ func WebScrapperPipelineDriver() {
 		"https://jsonplaceholder.typicode.com/posts/2",
 		"https://jsonplaceholder.typicode.com/posts/3",
 		"https://bas",
+		"https://jsonplaceholder.typicode.com/posts/4",
 	)
 
 	logErrorToFile := func(done <-chan interface{}, errChan <-chan error) {
