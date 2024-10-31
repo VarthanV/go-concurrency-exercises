@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
-	"io"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -15,178 +15,101 @@ import (
 
 type Todo struct {
 	UserID    int    `json:"userId"`
-	ID        int    `json:"id" gorm:"primaryKey" `
+	ID        int    `json:"id" gorm:"primaryKey"`
 	Title     string `json:"title"`
 	Completed bool   `json:"completed"`
 }
 
-type Process struct {
-	Todo *Todo
-	Err  error
-}
-
-func generator(done <-chan interface{}, urls ...string) <-chan string {
+func generator(ctx context.Context, urls ...string) <-chan string {
 	urlStream := make(chan string)
-
 	go func() {
 		defer close(urlStream)
-		for _, val := range urls {
+		for _, url := range urls {
 			select {
-			case urlStream <- val:
-
-			case <-done:
+			case <-ctx.Done():
 				return
+			case urlStream <- url:
 			}
 		}
 	}()
-
 	return urlStream
 }
 
-// Stage 1
-func doHTTP(done <-chan interface{}, urlStream <-chan string) <-chan Process {
-	resultStream := make(chan Process)
-
+func doHTTP(ctx context.Context, urlStream <-chan string) <-chan *Todo {
+	resultStream := make(chan *Todo)
 	go func() {
 		defer close(resultStream)
-
 		for url := range urlStream {
 			select {
+			case <-ctx.Done():
+				return
 			default:
-				var (
-					httpResp *Todo
-				)
-
-				log.Println("Fetching url ", url)
 				resp, err := http.Get(url)
 				if err != nil {
-					resultStream <- Process{
-						Err: err,
-					}
+					log.Printf("Failed to fetch URL %s: %v", url, err)
 					continue
 				}
 
-				// Read request body
-				respBody, err := io.ReadAll(resp.Body)
-				if err != nil {
-					resultStream <- Process{
-						Err: err,
-					}
+				var todo Todo
+				if err := json.NewDecoder(resp.Body).Decode(&todo); err != nil {
+					log.Printf("Failed to decode JSON for URL %s: %v", url, err)
 					continue
 				}
-
-				err = json.Unmarshal(respBody, &httpResp)
-				if err != nil {
-					resultStream <- Process{
-						Err: err,
-					}
-				}
-
-				resultStream <- Process{
-					Todo: httpResp,
-				}
-
-			case <-done:
-				return
+				resultStream <- &todo
+				resp.Body.Close()
 			}
 		}
 	}()
-
 	return resultStream
 }
 
-// Stage 2 insert in db
-
-func insertInDB(done <-chan interface{}, processStream <-chan Process, db *gorm.DB) <-chan Process {
-	resultStream := make(chan Process)
-
-	go func() {
-		defer close(resultStream)
-
-		for val := range processStream {
-			select {
-			default:
-				if val.Err != nil {
-					resultStream <- val
-					continue
-				}
-
-				if val.Todo != nil {
-					log.Println("inserting into db with id ", val.Todo.ID)
-					err := db.Model(&Todo{}).
-						Clauses(clause.OnConflict{DoNothing: true}).
-						Create(&val.Todo).Error
-					if err != nil {
-						val.Err = errors.Join(val.Err, err)
-						resultStream <- val
-						continue
-					}
-					resultStream <- val
-				}
-
-			case <-done:
-				return
+func insertInDB(ctx context.Context, todos <-chan *Todo, db *gorm.DB, wg *sync.WaitGroup, errChan chan<- error) {
+	defer wg.Done()
+	for todo := range todos {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&todo).Error
+			if err != nil {
+				errChan <- fmt.Errorf("DB insertion error for ID %d: %w", todo.ID, err)
 			}
 		}
-	}()
-
-	return resultStream
+	}
 }
 
 func WebScrapperPipelineDriver() {
-	var (
-		errChan = make(chan error, 5)
-		wg      sync.WaitGroup
-	)
-
 	db, err := gorm.Open(sqlite.Open("todo.db"), &gorm.Config{})
 	if err != nil {
-		log.Fatal("unable to open db ", err)
+		log.Fatalf("Failed to open database: %v", err)
 	}
 
-	err = db.AutoMigrate(&Todo{})
-	if err != nil {
-		log.Fatal("unable to automigrate ", err)
+	if err := db.AutoMigrate(&Todo{}); err != nil {
+		log.Fatalf("Failed to auto-migrate: %v", err)
 	}
 
-	done := make(chan interface{})
-	defer close(done)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	urlStream := generator(done,
+	urlStream := generator(ctx,
 		"https://jsonplaceholder.typicode.com/posts/1",
 		"https://jsonplaceholder.typicode.com/posts/2",
 		"https://jsonplaceholder.typicode.com/posts/3",
-		"https://bas",
 	)
 
-	logErrorToFile := func(done <-chan interface{}, errChan <-chan error) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for err := range errChan {
-				select {
-				default:
-					// TODO: will log in file later
-					log.Println(err)
+	errChan := make(chan error)
+	var wg sync.WaitGroup
 
-				case <-done:
-					return
-				}
-			}
+	todoStream := doHTTP(ctx, urlStream)
+	wg.Add(1)
+	go insertInDB(ctx, todoStream, db, &wg, errChan)
 
-		}()
-	}
-
-	logErrorToFile(done, errChan)
-
-	pipeline := insertInDB(done, doHTTP(done, urlStream), db)
-
-	for val := range pipeline {
-		if val.Err != nil {
-			errChan <- val.Err
+	go func() {
+		for err := range errChan {
+			log.Println("Error:", err)
 		}
-	}
-	close(errChan)
-	wg.Wait()
+	}()
 
+	wg.Wait()
+	close(errChan)
 }
