@@ -2,14 +2,20 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
+	"sync"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Todo struct {
 	UserID    int    `json:"userId"`
-	ID        int    `json:"id"`
+	ID        int    `json:"id" gorm:"primaryKey" `
 	Title     string `json:"title"`
 	Completed bool   `json:"completed"`
 }
@@ -27,11 +33,13 @@ func generator(done <-chan interface{}, urls ...string) <-chan string {
 		for _, val := range urls {
 			select {
 			case urlStream <- val:
+
 			case <-done:
 				return
 			}
 		}
 	}()
+
 	return urlStream
 }
 
@@ -42,15 +50,16 @@ func doHTTP(done <-chan interface{}, urlStream <-chan string) <-chan Process {
 	go func() {
 		defer close(resultStream)
 
-		for {
+		for url := range urlStream {
 			select {
-			case url := <-urlStream:
+			default:
 				var (
 					httpResp *Todo
 				)
+
+				log.Println("Fetching url ", url)
 				resp, err := http.Get(url)
 				if err != nil {
-					log.Println("error in doing get request ", err)
 					resultStream <- Process{
 						Err: err,
 					}
@@ -60,7 +69,6 @@ func doHTTP(done <-chan interface{}, urlStream <-chan string) <-chan Process {
 				// Read request body
 				respBody, err := io.ReadAll(resp.Body)
 				if err != nil {
-					log.Println("error in reading resp body ", err)
 					resultStream <- Process{
 						Err: err,
 					}
@@ -69,11 +77,9 @@ func doHTTP(done <-chan interface{}, urlStream <-chan string) <-chan Process {
 
 				err = json.Unmarshal(respBody, &httpResp)
 				if err != nil {
-					log.Println("error in unmarshalling body ", err)
 					resultStream <- Process{
 						Err: err,
 					}
-					continue
 				}
 
 				resultStream <- Process{
@@ -91,23 +97,31 @@ func doHTTP(done <-chan interface{}, urlStream <-chan string) <-chan Process {
 
 // Stage 2 insert in db
 
-func insertInDB(done <-chan interface{}, processStream <-chan Process) <-chan Process {
+func insertInDB(done <-chan interface{}, processStream <-chan Process, db *gorm.DB) <-chan Process {
 	resultStream := make(chan Process)
 
 	go func() {
 		defer close(resultStream)
 
-		for {
+		for val := range processStream {
 			select {
-			case val := <-processStream:
+			default:
 				if val.Err != nil {
-					log.Println("cant go further in pipeline ", val.Err)
-					// Can do meaningful stuffs if required to handle error
+					resultStream <- val
 					continue
 				}
 
 				if val.Todo != nil {
-					// TODO: insert in db
+					log.Println("inserting into db with id ", val.Todo.ID)
+					err := db.Model(&Todo{}).
+						Clauses(clause.OnConflict{DoNothing: true}).
+						Create(&val.Todo).Error
+					if err != nil {
+						val.Err = errors.Join(val.Err, err)
+						resultStream <- val
+						continue
+					}
+					resultStream <- val
 				}
 
 			case <-done:
@@ -117,4 +131,62 @@ func insertInDB(done <-chan interface{}, processStream <-chan Process) <-chan Pr
 	}()
 
 	return resultStream
+}
+
+func WebScrapperPipelineDriver() {
+	var (
+		errChan = make(chan error, 5)
+		wg      sync.WaitGroup
+	)
+
+	db, err := gorm.Open(sqlite.Open("todo.db"), &gorm.Config{})
+	if err != nil {
+		log.Fatal("unable to open db ", err)
+	}
+
+	err = db.AutoMigrate(&Todo{})
+	if err != nil {
+		log.Fatal("unable to automigrate ", err)
+	}
+
+	done := make(chan interface{})
+	defer close(done)
+
+	urlStream := generator(done,
+		"https://jsonplaceholder.typicode.com/posts/1",
+		"https://jsonplaceholder.typicode.com/posts/2",
+		"https://jsonplaceholder.typicode.com/posts/3",
+		"https://bas",
+	)
+
+	logErrorToFile := func(done <-chan interface{}, errChan <-chan error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for err := range errChan {
+				select {
+				default:
+					// TODO: will log in file later
+					log.Println(err)
+
+				case <-done:
+					return
+				}
+			}
+
+		}()
+	}
+
+	logErrorToFile(done, errChan)
+
+	pipeline := insertInDB(done, doHTTP(done, urlStream), db)
+
+	for val := range pipeline {
+		if val.Err != nil {
+			errChan <- val.Err
+		}
+	}
+	close(errChan)
+	wg.Wait()
+
 }

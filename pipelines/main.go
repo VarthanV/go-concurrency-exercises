@@ -29,4 +29,5 @@ func basicPipeline() {
 
 func main() {
 	basicPipeline()
+	WebScrapperPipelineDriver()
 }
