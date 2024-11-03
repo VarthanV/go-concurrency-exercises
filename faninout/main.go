@@ -123,4 +123,5 @@ func fanOut() {
 
 func main() {
 	fanOut()
+	fanInDriver()
 }
