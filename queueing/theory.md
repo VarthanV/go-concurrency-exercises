@@ -71,3 +71,26 @@
     - At the entrance o the pipeline
     - Stages where batching will lead to higher efficiency.
 
+## Littles Law
+
+- This law with enough sampling predicts the throughput of our pipeline
+
+Its is commonly expressed as
+
+> L = RW
+
+- ``L``= the average number of units in the system
+
+- ``R`` = the average arrival rate of units
+
+- ``W``= The average time a unit spends in the system.
+
+- This equation only applies to so called ``stable systems``.
+
+- Stable systems are systems in which tbhe rate work enters the pipeline or ``ingress`` is equal to the rate in which it exists the system or ``egress``.
+
+- If the ``rate of ingress > rate of egress `` , system is unstable and we have entered a death spiral , if the rate is viceversa also the system is unstable.
+
+- It is better to implement so called a ``persistent queue`` instead of in-memory queue so that we can fetch the data in case of the requests can't be replayed.
+
+- Queueing can be useful in the system , because of its complexity it is one of the last optimizations to implement.
