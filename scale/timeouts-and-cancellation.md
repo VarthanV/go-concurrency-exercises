@@ -50,3 +50,42 @@
 **Replicated Requests**
     - We might wish to send data to multiple concurrent processes in an attempt to get a faster response from one of them , when the first one comesback we would want to cancel the rest of the process.
 
+## Preemtability of a concurrent process
+
+- Our concurrent must be as preemtible as possible when cancellation occurs.
+
+- Consider below code and assume it is running its own goroutine
+
+```go
+var value interface{}
+
+select {
+    case <- done:
+        return
+    case value := valueStream
+}
+
+result := reallyLongCalculation(value)
+
+select {
+    case <- done:
+    return 
+    case resultStream <- result:
+}
+
+```
+- ``reallyLongCalculation`` doesn't look to be preemtable , This means some signal attempts to cancel the goroutine while ``reallyLongCalculation`` is executing it could be a very long time before we acknowledge the cancellation and halt
+
+- We must maximum make the long running process in a goroutine as preemtable.
+
+- An easy way to do this is to breakup pieces of goroutine into smaller pieces.
+
+- Should aim for all nonpreemtable atomic operations to complete in less time than perod deemed acceptable.
+
+- When cancellation signal comes when doing operations like database insertion, modification of file etc we need to be able rollback fairly quickly.
+
+## Duplicated messages
+
+- Another issue to be concerned is with ``duplicated messages``.
+
+- Let's say in pipeline we have 3 stage , A,B and C
