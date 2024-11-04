@@ -88,4 +88,25 @@ select {
 
 - Another issue to be concerned is with ``duplicated messages``.
 
-- Let's say in pipeline we have 3 stage , A,B and C
+- Let's say in pipeline we have 3 stage , A,B and C, There is a possiblity of Stage B to receive duplicate messages if cancellation message comes in after stage A has already sent its result to B.
+
+- There are few ways to avoid sending duplicate messages, The easiest is to make it vanishingly unlikely that a parent gorouine will send cancellation signal after a child goroutine has already reported a result. This requires **bidirectional communication** between stages.
+
+**Accept either first or last result reported**: If the algorithm allows it or the concurrent process is idempotent , we can simply allow for the possiblity of duplicate messages in downstream processes and choose whether or not accept the first or last message
+
+**Poll the goroutine for communication**: We can use bidirectional communication with parent to explicity request permission to send your message.
+
+Note: 
+> Introduce cancellations and timeouts in the beginning stage itself rather last
+
+## Heartbeats
+
+- Heartbeats are way for concurrent processes to signal life to outside parties.
+
+- They allow us get insights from our system and they make the testing system deterministic which otherwise cannot be
+
+- There are 2 different types of heartbeat
+    - Occur on a time interval
+    - Occur at beginning of a unit of work
+
+- Heartbeat that occur on a time interval are useful for concurrent code that might be waiting for something else to happen for it to process a unit of work, because we dont know when the work might come in , goroutine might be sitting around for a while for something to happen. Heartbeat is a way to signal everything is fine
